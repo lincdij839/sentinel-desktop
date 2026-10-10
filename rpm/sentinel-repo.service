@@ -1,0 +1,15 @@
+[Unit]
+Description=Sentinel Desktop signed update repository
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yuan
+Group=yuan
+WorkingDirectory=/home/yuan/Desktop/sentinel-desktop
+ExecStart=/usr/bin/python3 /home/yuan/Desktop/sentinel-desktop/rpm/https-server.py --dir /home/yuan/Desktop/sentinel-desktop/publish/fedora/44 --port 8743 --cert /home/yuan/Desktop/sentinel-desktop/rpm/tls/server.crt --key /home/yuan/Desktop/sentinel-desktop/rpm/tls/server.key
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

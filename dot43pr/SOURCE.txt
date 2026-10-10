@@ -1,0 +1,6 @@
+Upstream: https://github.com/43PR/dotfiles
+Commit:   3512912d705835981dcca716ea5b88cd8d44b36e
+License:  MIT
+Adapted for Fedora 44 / Sentinel Desktop. Spicetify marketplace
+screenshots are omitted; the text theme files are included.
+Wallpapers: https://wallhaven.cc/user/43pr

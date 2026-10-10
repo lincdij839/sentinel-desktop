@@ -1,0 +1,16 @@
+[SddmGreeterTheme]
+Name=Sentinel
+Description=Sentinel login theme with username and password fields
+Author=Sentinel Desktop
+Copyright=(c) 2026
+License=MIT
+Type=sddm-theme
+Version=1.0
+Website=
+Screenshot=background.png
+MainScript=Main.qml
+ConfigFile=theme.conf
+TranslationsDirectory=translations
+Theme-Id=sentinel
+Theme-API=2.0
+QtVersion=6

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Control the running Sentinel shell: sentinel-ctl <launcher|dashboard|network|files|power|lock|audio|bluetooth|display|osd|wallpaper> <function>
+set -euo pipefail
+
+home="${SENTINEL_HOME:-$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)}"
+shell="${SENTINEL_SHELL:-$home/shell}"
+exec quickshell ipc --path "$shell" call "$@"

@@ -1,0 +1,204 @@
+@import "colors.rasi"
+configuration {
+    terminal: "kitty";
+    modes: "combi";
+    combi-modes: "window,run,drun";
+
+    me-select-entry: "";
+    me-accept-entry: "MousePrimary";
+
+    drun-display-format: "{name}";
+    window-format: "{t:45}  ·  {c}";
+    font: "Iosevka 13";
+
+    location: 0;
+    fixed-num-lines: true;
+    show-icons: true;
+    sidebar-mode: false;
+    scroll-method: 1;
+    matching: "prefix";
+    sort: true;
+    sorting-method: "normal";
+    click-to-exit: true;
+    combi-hide-mode-prefix: true;
+
+    display-run: "";
+    display-window: "󰖯";
+    display-drun: "";
+    display-combi: "󰘔";
+    display-ssh: "";
+}
+
+* {    
+    background-color: transparent;
+    text-color: @fg;
+    margin: 0;
+    padding: 0;
+    spacing: 0;
+}
+
+window {
+    location: center;
+    width: 420px;
+    height: 290px;
+    background-color: @bg;
+    border: 1px;
+    border-color: @border-color;
+    border-radius: 10px;
+    padding: 10;
+}
+
+mainbox {
+    orientation: vertical;
+    background-color: transparent;
+    spacing: 12px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+    border: 1px;
+    border-color: transparent;
+    border-radius: 10px;
+    padding: 5px 15px;
+    spacing: 12px;
+    children: [prompt, entry];
+}
+
+prompt {
+    enabled: true;
+    background-color: transparent;
+    text-color: @border-color;
+    font: "Iosevka Nerd Font 12";
+    padding: 0;
+    vertical-align: 0.5;
+}
+
+entry {
+    background-color: transparent;
+    text-color: @border-color;
+    font: "Iosevka 12";
+    placeholder: "";
+    placeholder-color: @fg-muted;
+    padding: 0;
+    vertical-align: 0.5;
+    horizontal-align: 0.5;
+}
+
+listview {
+    background-color: transparent;
+    border: 0;
+    spacing: 6px;
+    padding: 4px 0;
+    lines: 8;
+    columns: 1;
+    fixed-height: true;
+    scrollbar: false;
+}
+
+element {
+    background-color: transparent;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    spacing: 14px;
+}
+
+element-icon {
+    size: 28px;
+    background-color: transparent;
+    vertical-align: 0.5;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+    vertical-align: 0.5;
+    font: "Iosevka 11";
+}
+
+element normal.normal,
+element alternate.normal {
+    background-color: transparent;
+    text-color: @fg;
+}
+
+element normal.active,
+element alternate.active {
+    background-color: transparent;
+    text-color: @border-color;
+}
+
+element normal.urgent,
+element alternate.urgent {
+    background-color: transparent;
+    text-color: @urgent;
+}
+
+element selected.normal,
+element selected.active {
+    background-color: @bg-selected;
+    border: 1px;
+    border-color: @border-color;
+    text-color: @border-color;
+}
+
+element selected.urgent {
+    background-color: @urgent;
+    text-color: @fg-dark;
+}
+
+message {
+    background-color: transparent;
+    border: 0;
+    padding: 4px 8px;
+    text-color: @fg-muted;
+}
+
+textbox {
+    background-color: transparent;
+    text-color: @fg-muted;
+    horizontal-align: 0.0;
+}
+
+sidebar {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+}
+
+button {
+    background-color: @bg-alt;
+    text-color: @fg-muted;
+    border: 1px;
+    border-color: @border-color;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 2px;
+}
+
+button selected {
+    background-color: @accent-soft;
+    text-color: @accent;
+    border-color: @accent;
+}
+
+scrollbar {
+    width: 4px;
+    border: 0;
+    handle-color: @accent;
+    handle-width: 4px;
+    padding: 0;
+}
+
+case-indicator {
+    spacing: 0;
+    text-color: @fg-muted;
+}
+
+textbox-prompt-colon {
+    expand: false;
+    str: "";
+    text-color: inherit;
+}
+
+

@@ -1,0 +1,11 @@
+[sentinel]
+name=Sentinel Desktop
+# Substituted at package build from rpm/update.conf or SENTINEL_REPO_URL.
+baseurl=__SENTINEL_REPO_URL__
+enabled=0
+gpgcheck=1
+repo_gpgcheck=1
+skip_if_unavailable=1
+timeout=8
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-sentinel
+sslcacert=/etc/pki/ca-trust/source/anchors/sentinel-repo-ca.crt

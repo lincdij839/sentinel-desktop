@@ -1,0 +1,9 @@
+[Unit]
+Description=Apply Sentinel Desktop updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=SENTINEL_UPDATE_OFFLINE_OK=1
+ExecStart=/usr/bin/sentinel-update

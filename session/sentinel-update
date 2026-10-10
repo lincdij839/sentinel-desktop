@@ -1,0 +1,500 @@
+#!/usr/bin/env bash
+# Apply a Sentinel bugfix the way a system update works.
+#
+#   sudo sentinel-update
+#   sudo sentinel-update --full
+#   sudo sentinel-update /path/to/sentinel-desktop
+#
+# Order: HTTPS/configured DNF repository, then an installer disc, then
+# /usr/src. Offline systems wait until they are back online and this
+# command (or the daily timer) runs again. --full also reinstalls 43PR packages.
+set -euo pipefail
+
+usage() {
+    printf 'Usage: %s [--sync] [--full] [--offline-ok] [SOURCE_DIR]\n' "${0##*/}" >&2
+}
+
+mountpoint=/run/sentinel-update
+mounted_here=0
+offline_ok=${SENTINEL_UPDATE_OFFLINE_OK:-0}
+
+is_tree() {
+    [[ -n ${1:-} && -f $1/install.sh && -d $1/session && -d $1/shell ]]
+}
+
+is_repo() {
+    local dir=${1:-} rpm
+    [[ -n $dir && -d $dir/repodata && -f $dir/repodata/repomd.xml ]] || return 1
+    shopt -s nullglob
+    for rpm in "$dir"/*.rpm; do
+        shopt -u nullglob
+        return 0
+    done
+    shopt -u nullglob
+    return 1
+}
+
+find_repo_in() {
+    local root=$1 candidate
+    for candidate in "$root/sentinel-repo" "$root"; do
+        if is_repo "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_tree_in() {
+    local root=$1 candidate
+    for candidate in "$root/sentinel-desktop" "$root"; do
+        if is_tree "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_mounted() {
+    local candidate root
+    shopt -s nullglob
+    for candidate in \
+        /mnt/sentinel \
+        /mnt/sentinel-src \
+        /run/media/*/*/sentinel-desktop \
+        /run/media/*/sentinel-desktop \
+        /media/*/*/sentinel-desktop \
+        /media/*/sentinel-desktop
+    do
+        if is_tree "$candidate"; then
+            printf '%s\n' "$candidate"
+            shopt -u nullglob
+            return 0
+        fi
+        root=$(dirname -- "$candidate")
+        if is_tree "$root"; then
+            printf '%s\n' "$root"
+            shopt -u nullglob
+            return 0
+        fi
+    done
+    shopt -u nullglob
+    return 1
+}
+
+find_mounted_repo() {
+    local candidate
+    shopt -s nullglob
+    for candidate in \
+        /mnt/sentinel-repo \
+        /run/media/*/*/sentinel-repo \
+        /run/media/*/sentinel-repo \
+        /media/*/*/sentinel-repo \
+        /media/*/sentinel-repo
+    do
+        if is_repo "$candidate"; then
+            printf '%s\n' "$candidate"
+            shopt -u nullglob
+            return 0
+        fi
+    done
+    shopt -u nullglob
+    return 1
+}
+
+mount_disc() {
+    local dev
+    mkdir -p -- "$mountpoint"
+    for dev in /dev/sr0 /dev/sr1 /dev/cdrom /dev/dvd; do
+        [[ -b $dev ]] || continue
+        umount -l -- "$mountpoint" >/dev/null 2>&1 || true
+        if mount -o ro,nosuid,nodev -- "$dev" "$mountpoint" >/dev/null 2>&1; then
+            mounted_here=1
+            if find_repo_in "$mountpoint" >/dev/null || find_tree_in "$mountpoint" >/dev/null; then
+                printf '%s\n' "$mountpoint"
+                return 0
+            fi
+            umount -l -- "$mountpoint" >/dev/null 2>&1 || true
+            mounted_here=0
+        fi
+    done
+    return 1
+}
+
+cleanup() {
+    if ((mounted_here)); then
+        umount -l -- "$mountpoint" >/dev/null 2>&1 || true
+    fi
+}
+
+conf_value() {
+    local key=$1 file=$2
+    [[ -f $file ]] || return 1
+    awk -F= -v k="$key" '
+        $1 == k {
+            sub(/^[^=]*=/, "")
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            print
+            exit
+        }
+    ' "$file"
+}
+
+expand_repo_url() {
+    local url=$1
+    local ver arch
+    ver=$(rpm -E '%fedora' 2>/dev/null || printf '44')
+    [[ $ver == %fedora ]] && ver=44
+    arch=$(uname -m)
+    url=${url//\$releasever/$ver}
+    url=${url//\$basearch/$arch}
+    printf '%s\n' "${url%/}"
+}
+
+network_repo_url() {
+    local url file line
+    if [[ -n ${SENTINEL_REPO_URL:-} ]]; then
+        expand_repo_url "$SENTINEL_REPO_URL"
+        return 0
+    fi
+    for file in /etc/sentinel/update.conf /usr/src/sentinel-desktop/rpm/update.conf; do
+        url=$(conf_value SENTINEL_REPO_URL "$file" || true)
+        if [[ -n $url ]]; then
+            expand_repo_url "$url"
+            return 0
+        fi
+    done
+    if [[ -f /etc/yum.repos.d/sentinel.repo ]]; then
+        line=$(awk -F= '/^baseurl=/{sub(/^[^=]*=/, ""); print; exit}' /etc/yum.repos.d/sentinel.repo)
+        if [[ $line == http://* || $line == https://* ]]; then
+            expand_repo_url "$line"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+pkg_transaction_busy() {
+    pgrep -x dnf >/dev/null 2>&1 && return 0
+    pgrep -x dnf5 >/dev/null 2>&1 && return 0
+    pgrep -x yum >/dev/null 2>&1 && return 0
+    [[ -e /run/dnf/lock ]] && return 0
+    return 1
+}
+
+wait_for_pkg_lock() {
+    if ! pkg_transaction_busy; then
+        return 0
+    fi
+    if ((offline_ok)); then
+        printf 'A system package update is already running. Sentinel will apply at the next timer.\n'
+        exit 0
+    fi
+    printf 'Waiting for the running system package update to finish...\n'
+    local waited=0
+    while pkg_transaction_busy; do
+        sleep 10
+        waited=$((waited + 10))
+        if ((waited >= 3600)); then
+            printf 'Timed out waiting for the other package update.\n' >&2
+            return 1
+        fi
+    done
+}
+
+# Python 3.14 rejects the lab CA (missing keyUsage). Fetch with curl.
+repo_curl() {
+    local dest=$1
+    shift
+    if [[ -n ${SENTINEL_REPO_CA:-} && -f ${SENTINEL_REPO_CA} ]]; then
+        curl -fsS --noproxy '*' --max-time 30 --cacert "$SENTINEL_REPO_CA" -o "$dest" "$@" \
+            || curl -kfsS --noproxy '*' --max-time 30 -o "$dest" "$@"
+    else
+        curl -kfsS --noproxy '*' --max-time 30 -o "$dest" "$@"
+    fi
+}
+
+newest_rpm_href() {
+    local url=$1
+    local ca=${2:-}
+    local work href
+    work=$(mktemp -d)
+    SENTINEL_REPO_CA=$ca repo_curl "$work/repomd.xml" -- "${url%/}/repodata/repomd.xml" || {
+        rm -rf -- "$work"
+        return 1
+    }
+    href=$(python3 - "$work/repomd.xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+ns = {"m": "http://linux.duke.edu/metadata/repo"}
+root = ET.parse(sys.argv[1]).getroot()
+for data in root.findall("m:data", ns):
+    if data.get("type") == "primary":
+        loc = data.find("m:location", ns)
+        if loc is not None and loc.get("href"):
+            print(loc.get("href"))
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+    ) || { rm -rf -- "$work"; return 1; }
+    SENTINEL_REPO_CA=$ca repo_curl "$work/primary" -- "${url%/}/$href" || {
+        rm -rf -- "$work"
+        return 1
+    }
+    if [[ $href == *.gz ]]; then
+        gzip -dc -- "$work/primary" > "$work/primary.xml"
+    else
+        mv -- "$work/primary" "$work/primary.xml"
+    fi
+    python3 - "$work/primary.xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+ns = {"p": "http://linux.duke.edu/metadata/common"}
+best = None
+for package in ET.parse(sys.argv[1]).getroot().findall("p:package", ns):
+    name = package.find("p:name", ns)
+    if name is None or name.text != "sentinel-desktop":
+        continue
+    loc = package.find("p:location", ns)
+    if loc is not None and loc.get("href"):
+        best = loc.get("href")
+if not best:
+    raise SystemExit(1)
+print(best)
+PY
+    local st=$?
+    rm -rf -- "$work"
+    return "$st"
+}
+
+apply_https_rpm() {
+    local url=$1
+    local key=${2:-/etc/pki/rpm-gpg/RPM-GPG-KEY-sentinel}
+    local ca=/etc/pki/ca-trust/source/anchors/sentinel-repo-ca.crt
+    local href work rpm_file have want
+    [[ -f $ca ]] || ca=
+    href=$(newest_rpm_href "$url" "$ca") || return 1
+    work=$(mktemp -d)
+    rpm_file="$work/${href##*/}"
+    SENTINEL_REPO_CA=$ca repo_curl "$rpm_file" -- "${url%/}/$href"
+    if [[ -f $key ]]; then
+        rpm --import -- "$key" || true
+    fi
+    rpm --checksig -- "$rpm_file"
+    if rpm -q sentinel-desktop >/dev/null 2>&1; then
+        have=$(rpm -q --qf '%{EVR}' sentinel-desktop)
+        want=$(rpm -qp --qf '%{EVR}' "$rpm_file")
+        if [[ $have == "$want" ]]; then
+            printf 'Already current (%s)\n' "$have"
+            rm -rf -- "$work"
+            return 0
+        fi
+    fi
+    wait_for_pkg_lock
+    rpm -Uvh -- "$rpm_file"
+    rm -rf -- "$work"
+}
+
+repo_reachable() {
+    local url=$1
+    [[ $url == http://* || $url == https://* ]] || return 1
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsI --noproxy '*' --max-time 8 -- "$url/repodata/repomd.xml" >/dev/null 2>&1
+        return
+    fi
+    command -v dnf >/dev/null 2>&1 || return 1
+    dnf --quiet --refresh --repofrompath=sentinel-probe,"$url" --repo=sentinel-probe \
+        --setopt=sentinel-probe.gpgcheck=0 --setopt=sentinel-probe.skip_if_unavailable=0 \
+        makecache >/dev/null 2>&1
+}
+
+apply_local_rpm() {
+    local repo=$1
+    local key=${2:-/etc/pki/rpm-gpg/RPM-GPG-KEY-sentinel}
+    local rpm_file have want
+    shopt -s nullglob
+    local candidates=("$repo"/sentinel-desktop-*.rpm)
+    shopt -u nullglob
+    ((${#candidates[@]} > 0)) || return 1
+    rpm_file=$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)
+    if [[ -f $key ]]; then
+        rpm --import -- "$key" || true
+    fi
+    rpm --checksig -- "$rpm_file"
+    if rpm -q sentinel-desktop >/dev/null 2>&1; then
+        have=$(rpm -q --qf '%{EVR}' sentinel-desktop)
+        want=$(rpm -qp --qf '%{EVR}' "$rpm_file")
+        if [[ $have == "$want" ]]; then
+            printf 'Already current (%s)\n' "$have"
+            return 0
+        fi
+    fi
+    wait_for_pkg_lock
+    rpm -Uvh -- "$rpm_file"
+}
+
+apply_dnf() {
+    local repo=$1
+    local key=${2:-/etc/pki/rpm-gpg/RPM-GPG-KEY-sentinel}
+    printf 'Updating desktop from %s\n' "$repo"
+    if [[ $repo == http* ]]; then
+        apply_https_rpm "$repo" "$key"
+        return
+    fi
+    apply_local_rpm "$repo" "$key"
+}
+
+apply_repo() {
+    local repo=$1
+    local key=$repo/RPM-GPG-KEY-sentinel
+    [[ -f $key ]] || key=/etc/pki/rpm-gpg/RPM-GPG-KEY-sentinel
+    apply_dnf "$repo" "$key"
+}
+
+# Default to a patch-style sync. --full reinstalls 43PR desktop packages.
+sync_only=1
+full_extras=0
+source_dir=
+while (($#)); do
+    case $1 in
+        --sync) sync_only=1; full_extras=0; shift ;;
+        --full) sync_only=0; full_extras=1; shift ;;
+        --offline-ok) offline_ok=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *)
+            if [[ -n $source_dir ]]; then
+                usage
+                exit 2
+            fi
+            source_dir=$1
+            shift
+            ;;
+    esac
+done
+
+if [[ -n $source_dir ]]; then
+    is_tree "$source_dir" || {
+        usage
+        printf 'Not a Sentinel source tree: %s\n' "$source_dir" >&2
+        exit 2
+    }
+fi
+
+if [[ $(id -u) -ne 0 ]]; then
+    extra=()
+    ((sync_only)) && extra+=(--sync)
+    ((full_extras)) && extra+=(--full)
+    ((offline_ok)) && extra+=(--offline-ok)
+    exec sudo -- "$0" "${extra[@]}" ${source_dir:+"$source_dir"}
+fi
+
+trap cleanup EXIT
+
+used_repo=0
+network_tried=0
+if [[ -z $source_dir ]]; then
+    if url=$(network_repo_url); then
+        network_tried=1
+        if repo_reachable "$url"; then
+            apply_dnf "$url"
+            used_repo=1
+        fi
+    fi
+fi
+
+disc_root=
+repo_dir=
+if ((used_repo == 0)) && [[ -z $source_dir ]]; then
+    # Mount the disc as root first. A user udisks mount is often mode 500,
+    # so root cannot read /run/media/$USER/...
+    disc_root=$(mount_disc || true)
+    if [[ -n $disc_root ]]; then
+        repo_dir=$(find_repo_in "$disc_root" || true)
+        source_dir=$(find_tree_in "$disc_root" || true)
+    fi
+    if [[ -z $repo_dir ]]; then
+        repo_dir=$(find_mounted_repo || true)
+    fi
+    if [[ -z $source_dir ]]; then
+        source_dir=$(find_mounted || true)
+    fi
+fi
+
+if ((used_repo == 0)) && [[ -n $repo_dir ]]; then
+    apply_repo "$repo_dir"
+    used_repo=1
+fi
+
+if [[ -z $source_dir ]] && is_tree /usr/src/sentinel-desktop; then
+    source_dir=/usr/src/sentinel-desktop
+fi
+
+# A configured network repo that is unreachable must wait. Do not pretend
+# the on-disk /usr/src tree is the published fix.
+if ((used_repo == 0)) && ((network_tried)) && [[ -z $repo_dir ]]; then
+    if ((offline_ok)); then
+        printf 'Update repository unreachable. Sentinel will apply the fix when this system is online again.\n'
+        exit 0
+    fi
+    printf 'Update repository unreachable. Connect to the network and run: sudo sentinel-update\n' >&2
+    exit 2
+fi
+
+if ((used_repo == 0)) && [[ -n ${source_dir:-} ]] && is_tree "$source_dir"; then
+    printf 'Updating from %s\n' "$source_dir"
+    if ((full_extras)); then
+        "$source_dir/install.sh" --prefix /usr --full
+    else
+        "$source_dir/install.sh" --prefix /usr --sync
+    fi
+elif ((used_repo)) && ((full_extras)); then
+    if [[ -n ${source_dir:-} ]] && is_tree "$source_dir"; then
+        "$source_dir/install.sh" --prefix /usr --extras
+    elif [[ -x /usr/src/sentinel-desktop/install.sh ]]; then
+        /usr/src/sentinel-desktop/install.sh --prefix /usr --extras
+    fi
+elif ((used_repo == 0)); then
+    printf 'No update repository, installer disc, or /usr/src/sentinel-desktop. Connect to the network and run: sudo sentinel-update\n' >&2
+    exit 2
+fi
+
+# Apply the new files to a session that is already logged in.
+if command -v fc-cache >/dev/null 2>&1 && [[ -d /usr/share/fonts/sentinel ]]; then
+    fc-cache -f -- /usr/share/fonts/sentinel || true
+fi
+
+refresh_session() {
+    local runtime=$1
+    local user
+    user=$(stat -c %U -- "$runtime")
+    [[ $user != root ]] || return 0
+    [[ -d $runtime/hypr ]] || return 0
+    local wayland=wayland-1
+    [[ -S $runtime/$wayland ]] || wayland=wayland-0
+    [[ -S $runtime/$wayland ]] || return 0
+    local sig
+    sig=$(ls "$runtime/hypr" 2>/dev/null | tail -1)
+    [[ -n $sig ]] || return 0
+    sudo -u "$user" env \
+        XDG_RUNTIME_DIR="$runtime" \
+        WAYLAND_DISPLAY="$wayland" \
+        HYPRLAND_INSTANCE_SIGNATURE="$sig" \
+        bash -c '
+            hyprctl dismissnotify >/dev/null 2>&1 || true
+            hyprctl reload >/dev/null 2>&1 || true
+            if pgrep -u "$(id -un)" -x qs >/dev/null 2>&1; then
+                pkill -u "$(id -un)" -x qs || true
+                sleep 0.3
+            fi
+            hyprctl eval "hl.dispatch(hl.dsp.exec_cmd(\"qs\"))" >/dev/null 2>&1 || true
+        ' || true
+}
+
+shopt -s nullglob
+for runtime in /run/user/*; do
+    refresh_session "$runtime"
+done
+shopt -u nullglob
+
+printf 'Sentinel update finished. Desktop files and /usr/src/sentinel-desktop are current.\n'

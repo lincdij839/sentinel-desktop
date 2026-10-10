@@ -1,0 +1,17 @@
+/target
+__pycache__/
+*.pyc
+/*.iso
+/*.qcow2
+/*-panel.png
+/.qemu-*
+/vendor/
+/repo/
+/publish/
+/rpm/.gnupg/
+/rpm/work/
+/rpm/tls/*.key
+/rpm/tls/*.csr
+/rpm/tls/*.srl
+/rpm/tls/*.ext
+*.rpm

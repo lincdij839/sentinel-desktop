@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Sentinel
+Comment=Sentinel Desktop - holographic HUD session on Hyprland
+Exec=sentinel-session
+Type=Application
+DesktopNames=Hyprland

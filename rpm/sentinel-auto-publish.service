@@ -1,0 +1,16 @@
+[Unit]
+Description=Publish Sentinel lab RPM when the desktop tree changes
+After=network-online.target sentinel-repo.service
+Wants=network-online.target sentinel-repo.service
+
+[Service]
+Type=simple
+User=yuan
+Group=yuan
+WorkingDirectory=/home/yuan/Desktop/sentinel-desktop
+ExecStart=/usr/bin/bash /home/yuan/Desktop/sentinel-desktop/rpm/watch-and-publish.sh
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

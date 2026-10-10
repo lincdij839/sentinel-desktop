@@ -1,0 +1,30 @@
+[general]
+mode = normal
+framerate = 60
+sensitivity = 100
+autosens = 0
+bar_width = 1.5
+bar_spacing = 0.4
+max_height = 100
+
+[input]
+method = pipewire
+source = auto
+
+[output]
+method = noncurses
+
+[color]
+gradient = 1
+gradient_color_1 = '#111111'
+gradient_color_2 = '#222222'
+gradient_color_3 = '#333333'
+gradient_color_4 = '#444444'
+gradient_color_5 = '#666666'
+gradient_color_6 = '#888888'
+gradient_color_7 = '#BBBBBB'
+gradient_color_8 = '#FFFFFF'
+
+[smoothing]
+noise_reduction = 90
+

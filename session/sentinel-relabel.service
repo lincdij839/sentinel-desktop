@@ -1,0 +1,12 @@
+[Unit]
+Description=Make the Sentinel login theme readable
+After=local-fs.target
+Before=display-manager.service sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/sentinel-desktop/session/sentinel-relabel
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

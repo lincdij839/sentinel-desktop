@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# SDDM runs as sddm_t and must be able to list the theme directory. A copy that
+# kept another SELinux label can be stat'ed but not listed; Qt then reports
+# "File name case mismatch". Run this before the display manager starts.
+set -eu
+
+conf=/etc/sddm.conf.d/10-sentinel.conf
+
+for theme in /usr/share/sddm/themes/sentinel; do
+    if [[ -d $theme ]]; then
+        chmod -R a+rX -- "$theme"
+        if command -v restorecon >/dev/null 2>&1; then
+            restorecon -RF -- "$theme" || true
+        fi
+    fi
+done
+if [[ -f $conf ]]; then
+    chmod a+r -- "$conf"
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -F -- "$conf" || true
+    fi
+fi

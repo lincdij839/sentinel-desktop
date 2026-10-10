@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Entry point of the Sentinel Wayland session (started by the display manager).
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+export SENTINEL_HOME="$(dirname -- "$(dirname -- "$self")")"
+export XDG_CURRENT_DESKTOP=Hyprland
+export XDG_SESSION_DESKTOP=sentinel
+export XDG_SESSION_TYPE=wayland
+export QT_IM_MODULE=fcitx
+export QT_IM_MODULES='wayland;fcitx;ibus'
+export XMODIFIERS=@im=fcitx
+export SDL_IM_MODULE=fcitx
+export INPUT_METHOD=fcitx
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
+export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
+export ELECTRON_OZONE_PLATFORM_HINT="${ELECTRON_OZONE_PLATFORM_HINT:-auto}"
+export PATH="${HOME:+$HOME/.local/bin:}/usr/local/bin:/usr/bin:/usr/sbin:/bin${PATH:+:$PATH}"
+
+# Heal 43PR links, wallpaper dirs, and IME before the compositor starts.
+if [[ -x $SENTINEL_HOME/scripts/setup-user.sh ]]; then
+    "$SENTINEL_HOME/scripts/setup-user.sh" || true
+fi
+
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/sentinel"
+export SENTINEL_CONFIG_DIR="$config_root"
+user_qs="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell"
+if [[ -f $user_qs/shell.qml ]]; then
+    export SENTINEL_SHELL="$user_qs"
+elif [[ -f $SENTINEL_HOME/dot43pr/quickshell/shell.qml ]]; then
+    export SENTINEL_SHELL="$SENTINEL_HOME/dot43pr/quickshell"
+elif [[ -f $config_root/shell/shell.qml ]]; then
+    export SENTINEL_SHELL="$config_root/shell"
+else
+    export SENTINEL_SHELL="$SENTINEL_HOME/shell"
+fi
+if [[ -f $config_root/hyprland.lua ]]; then
+    hypr_config="$config_root/hyprland.lua"
+else
+    hypr_config="$SENTINEL_HOME/session/hyprland.lua"
+fi
+
+# Hyprland 0.56+ shows a persistent error overlay unless the watchdog
+# wrapper starts it. Extra arguments after -- go to Hyprland itself.
+if command -v start-hyprland >/dev/null 2>&1; then
+    hyprland=(start-hyprland -- --config "$hypr_config")
+else
+    hyprland=(Hyprland --config "$hypr_config")
+fi
+
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- "$self"
+fi
+if command -v uwsm >/dev/null 2>&1; then
+    exec uwsm start -e -D Hyprland -N Sentinel -- "${hyprland[@]}"
+fi
+exec "${hyprland[@]}"

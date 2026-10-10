@@ -1,0 +1,9 @@
+[Hotkey]
+# Ctrl+Space toggles the input method. The launcher keeps its own shortcut.
+TriggerKeys=Control+space
+AltTriggerKeys=
+EnumerateWithTriggerKeys=True
+EnumerateForwardKeys=
+EnumerateBackwardKeys=
+ActivateKeys=
+DeactivateKeys=
